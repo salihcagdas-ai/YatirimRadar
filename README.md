@@ -2,6 +2,10 @@
 
 YatırımRadar is a local research tool for following public decisions that affect land in Türkiye. It brings environmental impact assessment (EIA, or *ÇED*) decisions and urgent expropriation notices from the Official Gazette (*Resmî Gazete*) onto one map. You can see which decisions have been matched to a cadastral parcel, look up a parcel, and compare assessed land values by neighborhood and year.
 
+![YatırımRadar map of central Türkiye with the heatmap enabled and the score breakdown for a fictional solar project](docs/images/map-preview.png)
+
+*The map shows ten fictional decisions. The selected solar project shows its decision date, assessed land value and the factors behind its score. Basemap © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright).*
+
 ## Run locally
 
 From the repository root, use Python 3.12, uv and Docker Compose. The map and API run on your machine. The street and satellite basemaps require internet access.
