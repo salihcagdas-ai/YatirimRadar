@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>YatırımRadar | Land events and parcels</title>
+  <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <style>
+    html, body { margin: 0; height: 100%; font-family: system-ui, Segoe UI, sans-serif; }
+    #map { position: absolute; inset: 0; }
+    #panel {
+      position: absolute; top: 12px; left: 12px; z-index: 2; width: 290px; max-height: 92vh;
+      overflow-y: auto; background: rgba(255,255,255,.96);
+      border-radius: 10px; box-shadow: 0 2px 14px rgba(0,0,0,.22); font-size: 12px;
+    }
+    #panel header { padding: 10px 12px; border-bottom: 1px solid #eee; }
+    #panel h1 { font-size: 15px; margin: 0; }
+    #panel header p { margin: 4px 0 0; color: #555; font-size: 11px; }
+    section { padding: 10px 12px; border-bottom: 1px solid #f0f0f0; }
+    section h2 { font-size: 12px; margin: 0 0 8px; text-transform: uppercase; letter-spacing: .04em; color: #444; }
+    label.fld { display: block; margin: 6px 0 2px; color: #555; }
+    select, input[type=text], input[type=number] { width: 100%; box-sizing: border-box; padding: 5px 6px;
+      border: 1px solid #ccc; border-radius: 6px; font-size: 12px; }
+    .row { display: flex; gap: 6px; }
+    .row > * { flex: 1; }
+    button { cursor: pointer; border: 0; border-radius: 6px; padding: 6px 10px; font-size: 12px;
+      background: #1f6feb; color: #fff; }
+    button.sec { background: #eee; color: #333; }
+    .chk { display: inline-flex; align-items: center; gap: 4px; margin-right: 10px; color: #333; }
+    .legend { display: flex; align-items: center; gap: 6px; font-size: 11px; margin-top: 8px; }
+    .bar { height: 10px; width: 130px; border-radius: 5px;
+      background: linear-gradient(90deg,#ffe08a,#ffc04d,#ff9f40,#e23b3b); }
+    #favList { list-style: none; margin: 0; padding: 0; }
+    #favList li { display: flex; justify-content: space-between; gap: 6px; padding: 4px 0; border-bottom: 1px dashed #eee; }
+    #favList a { color: #1f6feb; cursor: pointer; text-decoration: none; flex: 1; }
+    #favList button { padding: 2px 6px; background: #f3f3f3; color: #b3261e; }
+    .muted { color: #888; }
+    #basemap { position: absolute; top: 12px; right: 52px; z-index: 2;
+      background: rgba(255,255,255,.95); border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,.2); }
+    #basemap button { background: #fff; color: #333; border-radius: 0; padding: 6px 10px; }
+    #basemap button.active { background: #1f6feb; color: #fff; }
+    .maplibregl-popup-content { font-size: 12px; max-width: 290px; }
+    .maplibregl-popup-content b { color: #b3261e; }
+    .pi { font-size: 11px; color: #333; }
+    .pi b { color: #14532d; }
+    .star { cursor: pointer; background: #fff7e6; color: #b8860b; border: 1px solid #f0d68a; }
+    .mlink { margin-top: 6px; font-size: 11px; }
+    .mlink a { color: #1f6feb; text-decoration: none; }
+    .mlink a:hover { text-decoration: underline; }
+    #rayic-liste { list-style: none; margin: 6px 0 0; padding: 0; max-height: 17rem; overflow-y: auto; }
+    #rayic-liste li { border-top: 1px solid #ddd; padding: 5px 0; }
+    #rayic-liste summary { cursor: pointer; }
+    #rayic-liste summary span { color: #236852; }
+    .rayic-detay { margin: 5px 0; line-height: 1.5; overflow-wrap: anywhere; }
+    #rayic-hata { color: #a12825; }
+    #rayic-bilgi, #rayic-hata { margin: 5px 0 0; }
+    #rayic-alan .row { align-items: end; margin-top: 5px; }
+    #rayic-alan .row button { flex: 0 0 auto; }
+    @media (max-width: 640px) {
+      #panel { top: auto; bottom: 0; left: 0; width: 100%; max-height: 43vh; }
+      #map { bottom: 43vh; }
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div id="basemap" role="group" aria-label="Basemap">
+    <button id="bm-osm" class="active" aria-pressed="true">Street</button><button id="bm-sat" aria-pressed="false">Satellite</button>
+  </div>
+  <div id="panel">
+    <header>
+      <h1>YatırımRadar</h1>
+      <p>Parcel colors show the event score. Select a parcel to inspect its score and source summary.</p>
+      <p id="count" class="muted" role="status">Loading events…</p>
+    </header>
+
+    <section>
+      <h2>Event filters</h2>
+      <label class="fld" for="f-il">Province</label>
+      <select id="f-il"><option value="">All</option></select>
+      <label class="fld" for="f-ilce">District</label>
+      <select id="f-ilce"><option value="">All</option></select>
+      <label class="fld" for="f-skor">Minimum score <span id="f-skor-val">0.00</span></label>
+      <input type="range" id="f-skor" min="0" max="0.6" step="0.01" value="0" style="width:100%" />
+      <div style="margin:6px 0">
+        <label class="chk"><input type="checkbox" id="f-kam" checked /> Expropriation</label>
+        <label class="chk" title="Environmental impact assessment"><input type="checkbox" id="f-ced" checked /> EIA</label>
+      </div>
+      <label class="fld" for="f-text">Search project summaries</label>
+      <input type="text" id="f-text" placeholder="Keywords in Turkish, e.g. GES" />
+    </section>
+
+    <section>
+      <h2>Map layers</h2>
+      <label class="chk"><input type="checkbox" id="heat-toggle" /> Heatmap</label>
+      <p class="muted" id="heat-bilgi" style="margin:4px 0 0">
+        Shows where filtered events cluster, weighted by score.
+      </p>
+    </section>
+
+    <section>
+      <h2>Assessed land values</h2>
+      <label class="chk"><input type="checkbox" id="rayic-toggle" aria-controls="rayic-alan" /> Show neighborhood values</label>
+      <div id="rayic-alan" hidden>
+        <div class="row">
+          <div><label class="fld" for="rayic-yil">Assessment year</label><select id="rayic-yil" disabled></select></div>
+          <button id="rayic-yenile" type="button" class="sec">Refresh</button>
+        </div>
+        <label class="fld" for="rayic-ara">Search by province, district or neighborhood</label>
+        <input type="text" id="rayic-ara" />
+        <p id="rayic-bilgi" role="status"></p>
+        <p id="rayic-hata" role="alert"></p>
+        <ul id="rayic-liste" aria-label="Assessed values by neighborhood"></ul>
+      </div>
+    </section>
+
+    <section>
+      <h2>Parcel lookup (TKGM)</h2>
+      <label class="fld" for="p-il">Province</label>
+      <input type="text" id="p-il" placeholder="Province name" />
+      <div class="row">
+        <div><label class="fld" for="p-ilce">District (optional)</label><input type="text" id="p-ilce" placeholder="District name" /></div>
+        <div><label class="fld" for="p-mah">Neighborhood</label><input type="text" id="p-mah" placeholder="Neighborhood name" /></div>
+      </div>
+      <div class="row">
+        <div><label class="fld" for="p-ada">Block</label><input type="text" id="p-ada" placeholder="Block number" /></div>
+        <div><label class="fld" for="p-par">Parcel</label><input type="text" id="p-par" placeholder="Parcel number" /></div>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button id="p-sorgula">Find parcel</button>
+        <button id="p-temizle" class="sec">Clear</button>
+      </div>
+      <div id="p-sonuc" class="pi" role="status" style="margin-top:8px"></div>
+      <p class="muted" style="margin:6px 0 0">The public land registry lookup returns parcel boundaries and land use.</p>
+    </section>
+
+    <section>
+      <h2>National overview</h2>
+      <label class="chk"><input type="checkbox" id="ozet-toggle" /> Show province totals</label>
+      <p class="muted" id="ozet-bilgi" style="margin:4px 0 0">
+        Events without parcel geometry are counted at an approximate point in each province.
+      </p>
+    </section>
+
+    <section>
+      <h2>Favorites (<span id="fav-n">0</span>)</h2>
+      <ul id="favList"></ul>
+      <p id="fav-bos" class="muted">Select a parcel and choose “Add to favorites.”</p>
+    </section>
+
+    <section>
+      <div class="legend"><span>Low score</span><div class="bar"></div><span>High score</span></div>
+    </section>
+  </div>
+
+  <script>
+  const YR = {
+    tumFeatures: [],        // All events before filtering.
+    merkez: {},             // Event ID to map coordinates for saved views.
+    favoriler: JSON.parse(localStorage.getItem("yr_favoriler") || "[]"),
+  };
+
+  const RENK = ["interpolate", ["linear"], ["get", "skor"],
+    0.0, "#ffe08a", 0.2, "#ffc04d", 0.4, "#ff9f40", 0.6, "#e23b3b"];
+  // Score-weighted heatmap colors.
+  const RENK_ISI = ["interpolate", ["linear"], ["heatmap-density"],
+    0, "rgba(0,0,0,0)", 0.2, "#ffe08a", 0.4, "#ffc04d", 0.6, "#ff9f40", 1, "#e23b3b"];
+
+  const numberFormat = new Intl.NumberFormat("en", { maximumFractionDigits: 2 });
+  const priceFormat = new Intl.NumberFormat("en", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  function countLabel(count, noun) {
+    return `${numberFormat.format(count)} ${noun}${count === 1 ? "" : "s"}`;
+  }
+
+  function unitValue(value) {
+    return value == null ? "—" : `${priceFormat.format(value)} TRY/m²`;
+  }
+
+  function eventTypeLabel(type) {
+    switch (type) {
+      case "kamulastirma": return "Expropriation";
+      case "ced": return "Environmental impact assessment";
+      case "kgm_yol": return "Road project";
+      case "osb": return "Organized industrial zone";
+      case "haber": return "News";
+      default: return type || "Other";
+    }
+  }
+
+  const rayicHaritasiniBagla = rayicPaneliKur();
+  const map = new maplibregl.Map({
+    container: "map",
+    style: {
+      version: 8,
+      glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
+      sources: {
+        osm: { type: "raster", tileSize: 256,
+          tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+          attribution: "© OpenStreetMap" },
+        esri: { type: "raster", tileSize: 256,
+          tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"],
+          attribution: "Imagery © Esri" }
+      },
+      layers: [
+        { id: "osm", type: "raster", source: "osm" },
+        { id: "esri", type: "raster", source: "esri", layout: { visibility: "none" } }
+      ]
+    },
+    center: [35, 39], zoom: 5
+  });
+  map.addControl(new maplibregl.NavigationControl(), "top-right");
+
+  // Display helpers
+  function htmlMetni(deger) {
+    return String(deger).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;").replaceAll("'", "&#39;");
+  }
+
+  function merkezBul(geom) {
+    let xs = [], ys = [];
+    const coords = geom.type === "MultiPolygon" ? geom.coordinates.flat(2)
+      : geom.type === "Polygon" ? geom.coordinates.flat(1) : [geom.coordinates];
+    for (const c of coords) { xs.push(c[0]); ys.push(c[1]); }
+    return [(Math.min(...xs)+Math.max(...xs))/2, (Math.min(...ys)+Math.max(...ys))/2];
+  }
+  function favKaydet() { localStorage.setItem("yr_favoriler", JSON.stringify(YR.favoriler)); }
+  function favVar(id) { return YR.favoriler.some(f => f.id === id); }
+  // Open the parcel location on an external map.
+  function haritaLinkleri(lng, lat) {
+    if (lng == null || lat == null || isNaN(lng) || isNaN(lat)) return "";
+    const y = (+lat).toFixed(6), x = (+lng).toFixed(6);
+    const google = `https://www.google.com/maps/@${y},${x},17z/data=!3m1!1e3`;
+    const yandex = `https://yandex.com/maps/?ll=${x},${y}&z=17&l=sat`;
+    const osm = `https://www.openstreetmap.org/?mlat=${y}&mlon=${x}#map=17/${y}/${x}`;
+    return `<div class="mlink">Open in ` +
+      `<a href="${google}" target="_blank" rel="noopener">Google Satellite ↗</a> · ` +
+      `<a href="${yandex}" target="_blank" rel="noopener">Yandex ↗</a> · ` +
+      `<a href="${osm}" target="_blank" rel="noopener">OpenStreetMap ↗</a></div>`;
+  }
+  // Represent event polygons as score-weighted points for the heatmap.
+  function noktaFC(feats) {
+    return { type: "FeatureCollection", features: feats.map(f => ({
+      type: "Feature",
+      geometry: { type: "Point", coordinates: YR.merkez[f.properties.id] || merkezBul(f.geometry) },
+      properties: { skor: f.properties.skor ?? 0 }
+    })) };
+  }
+
+  async function firsatlariYukle() {
+    for (const url of ["/api/firsatlar.geojson?il=tum&limit=5000", "./firsatlar.geojson"]) {
+      try { const r = await fetch(url); if (r.ok) return await r.json(); } catch (e) {}
+    }
+    return { type: "FeatureCollection", features: [] };
+  }
+
+  function rayicPaneliKur() {
+    const ac = document.getElementById("rayic-toggle");
+    const alan = document.getElementById("rayic-alan");
+    const yil = document.getElementById("rayic-yil");
+    const ara = document.getElementById("rayic-ara");
+    const yenile = document.getElementById("rayic-yenile");
+    const bilgi = document.getElementById("rayic-bilgi");
+    const hata = document.getElementById("rayic-hata");
+    const liste = document.getElementById("rayic-liste");
+    let veriler = null;
+    let harita = null;
+    let popup = null;
+
+    function detay(p) {
+      const kutu = document.createElement("div");
+      kutu.className = "rayic-detay";
+      for (const metin of [
+        `${p.il} / ${p.ilce} / ${p.mahalle} · ${p.yil}`,
+        p.pozitif_adet === p.adet ? countLabel(p.adet, "assessment record") :
+          `Positive values used in statistics: ${p.pozitif_adet} of ${countLabel(p.adet, "record")}.`,
+        `Average ${unitValue(p.ort_tl_m2)}`,
+        `Minimum ${unitValue(p.min_tl_m2)} · Maximum ${unitValue(p.max_tl_m2)}`,
+        `Source: ${p.kaynaklar.join(", ")}`,
+        p.konum_kaynagi ? `Location: ${p.konum_kaynagi === "OpenStreetMap mahalle noktası" ? "OpenStreetMap neighborhood point" : p.konum_kaynagi}` : "No mapped location for this neighborhood."
+      ]) {
+        const satir = document.createElement("div");
+        satir.textContent = metin;
+        kutu.append(satir);
+      }
+      if (p.konum_url && /^https:\/\/www\.openstreetmap\.org\/node\/\d+$/.test(p.konum_url)) {
+        const kaynak = document.createElement("a");
+        kaynak.href = p.konum_url;
+        kaynak.target = "_blank";
+        kaynak.rel = "noopener";
+        kaynak.textContent = "View location on OpenStreetMap";
+        kutu.append(kaynak);
+      }
+      return kutu;
+    }
+
+    function goster(f) {
+      popup.setLngLat(f.geometry.coordinates).setDOMContent(detay(f.properties)).addTo(harita);
+    }
+
+    function ciz(odakla = false) {
+      // Keep neighborhoods without coordinates in the list.
+      const aranan = ara.value.trim().toLocaleLowerCase("tr");
+      const secili = (veriler || []).filter(({ properties: p }) =>
+        String(p.yil) === yil.value &&
+        [p.il, p.ilce, p.mahalle].some(ad => ad.toLocaleLowerCase("tr").includes(aranan)));
+      const noktalar = secili.filter(f => f.geometry?.type === "Point");
+      if (harita) {
+        harita.getSource("rayic").setData({ type: "FeatureCollection", features: noktalar });
+        harita.setLayoutProperty("rayic-nokta", "visibility", ac.checked ? "visible" : "none");
+        if (popup.getElement()?.querySelector(".rayic-detay")) popup.remove();
+        if (odakla && ac.checked && noktalar.length) {
+          const sinir = new maplibregl.LngLatBounds();
+          for (const f of noktalar) sinir.extend(f.geometry.coordinates);
+          const solBosluk = window.innerWidth > 640 ? 320 : 30;
+          harita.fitBounds(sinir, { padding: { top: 35, right: 45, bottom: 35, left: solBosluk }, maxZoom: 14 });
+        }
+      }
+      liste.replaceChildren();
+      if (!veriler) return;
+      if (!secili.length) {
+        bilgi.textContent = veriler.length ? "No neighborhoods match your search." : "No assessed land values have been imported.";
+        return;
+      }
+      const toplam = secili.reduce((n, f) => n + f.properties.adet, 0);
+      bilgi.textContent = `${countLabel(secili.length, "neighborhood")} · ${countLabel(toplam, "record")} · ${noktalar.length} mapped`;
+      for (const f of secili) {
+        const p = f.properties;
+        const li = document.createElement("li");
+        const ayrinti = document.createElement("details");
+        const baslik = document.createElement("summary");
+        const ortalama = document.createElement("span");
+        ortalama.textContent = p.ort_tl_m2 == null ? " · No positive values" : ` · Avg. ${unitValue(p.ort_tl_m2)}`;
+        baslik.append(`${p.mahalle} (${p.ilce})`, ortalama);
+        ayrinti.append(baslik, detay(p));
+        if (harita && f.geometry?.type === "Point") {
+          const git = document.createElement("button");
+          git.type = "button";
+          git.className = "sec";
+          git.textContent = "Show on map";
+          git.onclick = () => {
+            harita.flyTo({ center: f.geometry.coordinates, zoom: 14 });
+            goster(f);
+          };
+          ayrinti.append(git);
+        }
+        li.append(ayrinti);
+        liste.append(li);
+      }
+    }
+
+    async function yukle() {
+      if (yenile.disabled) return;
+      yenile.disabled = true;
+      hata.textContent = "";
+      bilgi.textContent = "Loading assessed values…";
+      try {
+        const yanit = await fetch("/api/rayic-ozet.geojson", { cache: "no-store" });
+        if (!yanit.ok) throw new Error();
+        const fc = await yanit.json();
+        if (fc.type !== "FeatureCollection" || !Array.isArray(fc.features)) throw new Error();
+        veriler = fc.features;
+        const yillar = [...new Set(veriler.map(f => f.properties.yil))].sort((a, b) => b - a);
+        const onceki = yil.value;
+        yil.replaceChildren(...yillar.map(y => new Option(y, y)));
+        if (yillar.some(y => String(y) === onceki)) yil.value = onceki;
+        yil.disabled = yillar.length === 0;
+        ciz(!onceki);
+      } catch {
+        if (veriler) ciz();
+        else bilgi.textContent = "";
+        hata.textContent = veriler ? "Could not refresh. Showing the last loaded values." :
+          "Could not load assessed values. Check the local API connection and select Refresh.";
+      } finally {
+        yenile.disabled = false;
+      }
+    }
+
+    ac.onchange = () => {
+      alan.hidden = !ac.checked;
+      if (ac.checked && !veriler) yukle();
+      else ciz(ac.checked);
+    };
+    yenile.onclick = yukle;
+    yil.onchange = () => ciz(true);
+    ara.oninput = () => ciz();
+
+    return (map, ortakPopup) => {
+      harita = map;
+      popup = ortakPopup;
+      harita.addSource("rayic", { type: "geojson", data: { type: "FeatureCollection", features: [] },
+        attribution: '<a href="https://www.openstreetmap.org/copyright">© OpenStreetMap contributors</a>' });
+      harita.addLayer({ id: "rayic-nokta", type: "circle", source: "rayic",
+        paint: { "circle-radius": 7, "circle-color": "#167257", "circle-stroke-color": "#fff",
+          "circle-stroke-width": 2 } });
+      harita.on("click", "rayic-nokta", e => {
+        // Read the original record because MapLibre may stringify nested properties.
+        const p = e.features[0].properties;
+        const f = veriler?.find(({ properties: o }) =>
+          o.il === p.il && o.ilce === p.ilce && o.mahalle === p.mahalle && o.yil === p.yil);
+        if (f?.geometry) goster(f);
+      });
+      harita.on("mouseenter", "rayic-nokta", () => harita.getCanvas().style.cursor = "pointer");
+      harita.on("mouseleave", "rayic-nokta", () => harita.getCanvas().style.cursor = "");
+      ciz(ac.checked);
+    };
+  }
+
+  // Filter the event layers.
+  function filtreliFC() {
+    const il = document.getElementById("f-il").value;
+    const ilce = document.getElementById("f-ilce").value;
+    const minSkor = parseFloat(document.getElementById("f-skor").value);
+    const kam = document.getElementById("f-kam").checked;
+    const ced = document.getElementById("f-ced").checked;
+    const txt = document.getElementById("f-text").value.trim().toLocaleLowerCase("tr");
+    const feats = YR.tumFeatures.filter(f => {
+      const p = f.properties;
+      if (il && p.il !== il) return false;
+      if (ilce && p.ilce !== ilce) return false;
+      if ((p.skor ?? 0) < minSkor) return false;
+      if (!kam && p.tur === "kamulastirma") return false;
+      if (!ced && p.tur === "ced") return false;
+      if (txt && !((p.ozet || "").toLocaleLowerCase("tr").includes(txt))) return false;
+      return true;
+    });
+    return { type: "FeatureCollection", features: feats };
+  }
+  function filtreUygula(fit) {
+    const fc = filtreliFC();
+    map.getSource("firsatlar").setData(fc);
+    map.getSource("firsat-nokta").setData(noktaFC(fc.features));
+    document.getElementById("count").textContent = `Showing ${fc.features.length} of ${countLabel(YR.tumFeatures.length, "mapped event")}`;
+    if (fit && fc.features.length) {
+      const b = new maplibregl.LngLatBounds();
+      for (const f of fc.features) b.extend(YR.merkez[f.properties.id] || merkezBul(f.geometry));
+      if (!b.isEmpty()) map.fitBounds(b, { padding: 70, maxZoom: 13 });
+    }
+  }
+
+  // Manage locally saved events.
+  function favEkleCikar(id, button) {
+    const idx = YR.favoriler.findIndex(f => f.id === id);
+    if (idx >= 0) { YR.favoriler.splice(idx, 1); }
+    else {
+      const f = YR.tumFeatures.find(x => x.properties.id === id);
+      if (f) YR.favoriler.push({ id, il: f.properties.il, ilce: f.properties.ilce,
+        ozet: (f.properties.ozet||"").slice(0,60), skor: f.properties.skor,
+        merkez: YR.merkez[id] || merkezBul(f.geometry) });
+    }
+    if (button) {
+      button.textContent = favVar(id) ? "★ Remove from favorites" : "☆ Add to favorites";
+      button.setAttribute("aria-pressed", String(favVar(id)));
+    }
+    favKaydet(); favListele();
+  }
+  function favListele() {
+    const ul = document.getElementById("favList");
+    ul.innerHTML = "";
+    document.getElementById("fav-n").textContent = YR.favoriler.length;
+    document.getElementById("fav-bos").style.display = YR.favoriler.length ? "none" : "block";
+    for (const f of YR.favoriler) {
+      const li = document.createElement("li");
+      const a = document.createElement("a");
+      a.textContent = `${(f.skor ?? 0).toFixed ? f.skor.toFixed(3) : f.skor} · ${f.ilce || f.il || "?"}`;
+      a.title = f.ozet || "";
+      a.onclick = () => map.flyTo({ center: f.merkez, zoom: 14 });
+      const b = document.createElement("button");
+      b.textContent = "✕"; b.setAttribute("aria-label", "Remove from favorites"); b.onclick = () => favEkleCikar(f.id);
+      li.append(a, b); ul.append(li);
+    }
+  }
+  window.YR_fav = favEkleCikar;  // Used by the favorite button in the popup.
+
+  // Populate the province and district selectors.
+  async function bolgeleriYukle() {
+    let bolge = null;
+    try { const r = await fetch("/api/bolgeler"); if (r.ok) bolge = await r.json(); } catch (e) {}
+    if (!bolge) {  // Derive available regions from the static export.
+      bolge = {};
+      for (const f of YR.tumFeatures) {
+        const p = f.properties; if (!p.il) continue;
+        (bolge[p.il] = bolge[p.il] || new Set()); if (p.ilce) bolge[p.il].add(p.ilce);
+      }
+      for (const k in bolge) bolge[k] = [...bolge[k]].sort();
+    }
+    const fIl = document.getElementById("f-il");
+    for (const il of Object.keys(bolge).sort()) fIl.add(new Option(il, il));
+    const fIlce = document.getElementById("f-ilce");
+    fIl.onchange = () => {
+      fIlce.length = 1;
+      for (const ic of (bolge[fIl.value] || [])) fIlce.add(new Option(ic, ic));
+      filtreUygula(true);
+    };
+  }
+
+  // Query the parcel registry.
+  async function parselSorgula() {
+    const q = new URLSearchParams({
+      il: document.getElementById("p-il").value, ilce: document.getElementById("p-ilce").value,
+      mahalle: document.getElementById("p-mah").value, ada: document.getElementById("p-ada").value,
+      parsel: document.getElementById("p-par").value });
+    const out = document.getElementById("p-sonuc");
+    out.innerHTML = "Looking up parcel…";
+    let d;
+    try { d = await (await fetch("/api/parsel?" + q)).json(); }
+    catch (e) { out.innerHTML = "<span style='color:#b3261e'>Could not reach the local parcel service. Start it with <code>yatirimradar serve</code>.</span>"; return; }
+    if (d.hata) { out.innerHTML = `<span style='color:#b3261e'>${htmlMetni(d.hata)}</span>`; return; }
+    if (!d.bulundu) { out.innerHTML = "<span class='muted'>No matching parcel found.</span>"; return; }
+    const p = d.feature.properties;
+    map.getSource("aranan").setData(d.feature);
+    const c = merkezBul(d.feature.geometry);
+    out.innerHTML = `<b>${htmlMetni(p.il)}/${htmlMetni(p.ilce||"?")}/${htmlMetni(p.mahalle)}</b> — ${htmlMetni(p.ada)}/${htmlMetni(p.parsel)}<br>` +
+      `Area: <b>${p.alan_m2 == null ? "—" : numberFormat.format(p.alan_m2) + " m²"}</b> · Land use: ${htmlMetni(p.nitelik ?? "—")} · Locality: ${htmlMetni(p.mevki ?? "—")}` +
+      haritaLinkleri(c[0], c[1]);
+    map.flyTo({ center: c, zoom: 16 });
+  }
+
+  // Switch between street and satellite layers.
+  function basemap(sat) {
+    map.setLayoutProperty("osm", "visibility", sat ? "none" : "visible");
+    map.setLayoutProperty("esri", "visibility", sat ? "visible" : "none");
+    document.getElementById("bm-osm").classList.toggle("active", !sat);
+    document.getElementById("bm-sat").classList.toggle("active", sat);
+    document.getElementById("bm-osm").setAttribute("aria-pressed", String(!sat));
+    document.getElementById("bm-sat").setAttribute("aria-pressed", String(sat));
+    // Increase boundary contrast against satellite imagery.
+    map.setPaintProperty("firsat-line", "line-color", sat ? "#ffd400" : "#7a1f17");
+    map.setPaintProperty("firsat-line", "line-width", sat ? 1.6 : 1);
+  }
+
+  map.on("load", async () => {
+    const fc = await firsatlariYukle();
+    YR.tumFeatures = fc.features;
+    for (const f of fc.features) YR.merkez[f.properties.id] = merkezBul(f.geometry);
+
+    map.addSource("firsatlar", { type: "geojson", data: fc });
+    map.addLayer({ id: "firsat-fill", type: "fill", source: "firsatlar",
+      paint: { "fill-color": RENK, "fill-opacity": 0.5 } });
+    map.addLayer({ id: "firsat-line", type: "line", source: "firsatlar",
+      paint: { "line-color": "#7a1f17", "line-width": 1 } });
+
+    // Heatmap of event centers, weighted by score.
+    map.addSource("firsat-nokta", { type: "geojson", data: noktaFC(YR.tumFeatures) });
+    map.addLayer({ id: "firsat-heat", type: "heatmap", source: "firsat-nokta",
+      layout: { visibility: "none" },
+      paint: {
+        "heatmap-weight": ["interpolate", ["linear"], ["get", "skor"], 0, 0.15, 0.6, 1],
+        "heatmap-intensity": ["interpolate", ["linear"], ["zoom"], 5, 1, 12, 3],
+        "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 5, 18, 10, 30, 14, 45],
+        "heatmap-opacity": 0.75,
+        "heatmap-color": RENK_ISI
+      } });
+
+    // Cadastral boundary returned by the parcel lookup.
+    map.addSource("aranan", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    map.addLayer({ id: "aranan-fill", type: "fill", source: "aranan",
+      paint: { "fill-color": "#1f6feb", "fill-opacity": 0.25 } });
+    map.addLayer({ id: "aranan-line", type: "line", source: "aranan",
+      paint: { "line-color": "#0b3d91", "line-width": 2.5 } });
+
+    // Approximate province totals for events without parcel geometry.
+    map.addSource("bolge", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    map.addLayer({ id: "bolge-circle", type: "circle", source: "bolge",
+      layout: { visibility: "none" },
+      paint: {
+        "circle-radius": ["interpolate", ["linear"], ["get", "toplam"], 1, 5, 50, 12, 300, 20, 800, 28],
+        "circle-color": "#3a6ea5", "circle-opacity": 0.35,
+        "circle-stroke-color": "#1f4e79", "circle-stroke-width": 1
+      } });
+    async function bolgeOzetYukle() {
+      try {
+        const r = await fetch("/api/bolge-ozet.geojson");
+        if (!r.ok) return;
+        const fc = await r.json();
+        map.getSource("bolge").setData(fc);
+        const top = fc.features.reduce((s, f) => s + (f.properties.toplam || 0), 0);
+        document.getElementById("ozet-bilgi").textContent =
+          `${countLabel(top, "event")} without parcel geometry across ${countLabel(fc.features.length, "province")}.`;
+      } catch (e) { /* Province totals require the local API. */ }
+    }
+    bolgeOzetYukle();
+
+    await bolgeleriYukle();
+    favListele();
+    filtreUygula(true);
+
+    // Bind filter controls.
+    for (const id of ["f-ilce", "f-kam", "f-ced"]) document.getElementById(id).onchange = () => filtreUygula(false);
+    document.getElementById("f-text").oninput = () => filtreUygula(false);
+    const sl = document.getElementById("f-skor");
+    sl.oninput = () => { document.getElementById("f-skor-val").textContent = (+sl.value).toFixed(2); filtreUygula(false); };
+    document.getElementById("p-sorgula").onclick = parselSorgula;
+    document.getElementById("p-temizle").onclick = () => {
+      map.getSource("aranan").setData({ type: "FeatureCollection", features: [] });
+      document.getElementById("p-sonuc").innerHTML = "";
+    };
+    document.getElementById("bm-osm").onclick = () => basemap(false);
+    document.getElementById("bm-sat").onclick = () => basemap(true);
+    document.getElementById("ozet-toggle").onchange = (e) =>
+      map.setLayoutProperty("bolge-circle", "visibility", e.target.checked ? "visible" : "none");
+    document.getElementById("heat-toggle").onchange = (e) =>
+      map.setLayoutProperty("firsat-heat", "visibility", e.target.checked ? "visible" : "none");
+
+    // Event detail popup.
+    const pop = new maplibregl.Popup({ closeButton: true, maxWidth: "300px" });
+    map.on("click", "firsat-fill", (e) => {
+      const p = e.features[0].properties;
+      const yildiz = favVar(p.id) ? "★ Remove from favorites" : "☆ Add to favorites";
+      const c = YR.merkez[p.id] || merkezBul(e.features[0].geometry);
+      const fiyatTipi = p.fiyat_tipi === "ilan" ? "Asking price" : "Assessed land value";
+      const fiyatEtiketi = [p.fiyat_duzeyi === "ilce" ? "district" : p.fiyat_duzeyi === "mahalle" ? "neighborhood" : p.fiyat_duzeyi, p.fiyat_yili].filter(Boolean).join(" · ");
+      const fiyat = p.rayic_tl_m2 == null ? "No price data" :
+        `${fiyatTipi} ${unitValue(p.rayic_tl_m2)}${fiyatEtiketi ? " (" + htmlMetni(fiyatEtiketi) + ")" : ""}`;
+      pop.setLngLat(e.lngLat).setHTML(
+        `<b>Score ${htmlMetni(p.skor)}</b> &nbsp;<small>${htmlMetni(eventTypeLabel(p.tur))} · ${htmlMetni(p.il||"")}/${htmlMetni(p.ilce ?? "-")}</small><br>` +
+        `<div style="margin:4px 0">${htmlMetni((p.ozet ?? "").slice(0,170))}</div>` +
+        `<small>${fiyat} · Decision date: ${htmlMetni(p.valid_time ?? "—")}<br>` +
+        `Event type ${htmlMetni(p.tur_agirlik)} × location confidence ${htmlMetni(p.kesinlik)} × recency ${htmlMetni(p.tazelik)} × relative price ${htmlMetni(p.ucuzluk)}` +
+        ` × district activity ${htmlMetni(p.yogunluk)} × project scale ${htmlMetni(p.buyukluk)}</small><br>` +
+        `<button class="star" aria-pressed="${favVar(p.id)}" onclick="YR_fav(${Number(p.id)}, this)">${yildiz}</button>` +
+        haritaLinkleri(c[0], c[1])
+      ).addTo(map);
+    });
+    map.on("mouseenter", "firsat-fill", () => map.getCanvas().style.cursor = "pointer");
+    map.on("mouseleave", "firsat-fill", () => map.getCanvas().style.cursor = "");
+
+    // Explain the approximate province marker.
+    map.on("click", "bolge-circle", (e) => {
+      const p = e.features[0].properties;
+      const c = e.features[0].geometry.coordinates;
+      pop.setLngLat(e.lngLat).setHTML(
+        `<b>${htmlMetni(p.il)}</b> <small>(approximate province location)</small><br>` +
+        `<small>Events without parcel geometry: <b>${htmlMetni(p.toplam)}</b> · Expropriation ${htmlMetni(p.kamulastirma)} · EIA ${htmlMetni(p.ced)}<br>` +
+        `These records have no verified parcel location.</small>` +
+        haritaLinkleri(c[0], c[1])
+      ).addTo(map);
+    });
+    map.on("mouseenter", "bolge-circle", () => map.getCanvas().style.cursor = "pointer");
+    map.on("mouseleave", "bolge-circle", () => map.getCanvas().style.cursor = "");
+    rayicHaritasiniBagla(map, pop);
+  });
+  </script>
+</body>
+</html>

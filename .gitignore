@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+*.local
+.claude/
+backup/
+*.dump
+*.bundle
+*.csv
+*.xlsx
+*.geojson
+
+# Keep local datasets out of version control.
+data/*
+!data/seed/
+data/seed/*
+!data/seed/il_centroidleri.json
+!data/raw/
+data/raw/*
+!data/processed/
+data/processed/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+# Track uv.lock for reproducible builds.
+
+# Generated map export
+frontend/firsatlar.geojson
